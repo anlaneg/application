@@ -6,11 +6,24 @@
 
 int app_parse_args(int argc,char**argv);
 
+static inline int app_dump_args(int argc,char**argv)
+{
+	int i;
+	printf("======app dump args======\n");
+	for(i = 0 ; i < argc; i++)
+	{
+		printf("argv[%d]=%s\n",i,argv[i]);
+	}
+	printf("======end dump args======\n\n");
+	return 0;
+}
+
 int main(int argc,char**argv)
 {
 	int ret;
 	uint16_t nb_ports;
 
+	app_dump_args(argc,argv);	
 	ret = rte_eal_init(argc, argv);
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");

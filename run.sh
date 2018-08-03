@@ -2,6 +2,15 @@
 
 PCI_LIST="00:09.0 00:0a.0"
 
+function build_pci_argment()
+{
+	for i in $PCI_LIST;
+	do
+		DPDK_PCI_LIST="$DPDK_PCI_LIST -w $i"
+	done;
+	echo "$DPDK_PCI_LIST"
+}
+
 function dpdk_bind_interface()
 {
 	
@@ -31,5 +40,6 @@ function prepare_env()
 
 
 prepare_env
+white_list=`build_pci_argment`
 
-./src/build/do
+./src/build/do $white_list
