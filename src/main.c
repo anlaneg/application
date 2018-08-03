@@ -27,6 +27,17 @@ static struct rte_eth_conf port_conf = {
 		.mq_mode = ETH_MQ_TX_NONE,
 	},
 };
+static inline int app_dump_args(int argc,char**argv)
+{
+	int i;
+	printf("======app dump args======\n");
+	for(i = 0 ; i < argc; i++)
+	{
+		printf("argv[%d]=%s\n",i,argv[i]);
+	}
+	printf("======end dump args======\n\n");
+	return 0;
+}
 
 int main(int argc,char**argv)
 {
@@ -35,6 +46,7 @@ int main(int argc,char**argv)
 	uint32_t nb_mbufs;
 	uint16_t portid;
 
+	app_dump_args(argc,argv);	
 	ret = rte_eal_init(argc, argv);
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n");
