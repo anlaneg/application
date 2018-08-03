@@ -6,7 +6,7 @@ all:.dpdk-build-done
 	make -C src all
 
 .dpdk-build-done:
-	(cd dpdk;./do.sh)
+	(if [ ! -e ./dpdk/do.sh ] ;then git submodule init ; git submodule update; fi; cd dpdk; ./do.sh ;)
 	touch $@
 
 clean:
