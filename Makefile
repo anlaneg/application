@@ -1,7 +1,7 @@
 #export RTE_TARGET=x86_64-native-linuxapp-gcc
 export RTE_SDK=$(CURDIR)/dpdk
 
-all:.dpdk-build-done
+all:.dpdk-build-done clean
 	echo $@
 	make V=1 -C src build
 

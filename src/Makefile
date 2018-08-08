@@ -1,7 +1,7 @@
 APP = do
 
 # all source are stored in SRCS-y
-SRCS-y := main.c netif_rx.c
+SRCS-y := main.c netif_rx.c pktdump.c
 
 RTE_TARGET ?= x86_64-native-linuxapp-gcc
 include $(RTE_SDK)/mk/rte.vars.mk

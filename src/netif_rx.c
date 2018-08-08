@@ -11,10 +11,13 @@
 
 
 #include "netif_rx.h"
+#include "pktdump.h"
 
 int netif_rx_mbuf(struct rte_mbuf *mbuf)
 {
 	struct ether_hdr*hdr = rte_pktmbuf_mtod(mbuf,struct ether_hdr*);
+	pktdump(rte_pktmbuf_mtod(mbuf,const u_char *),mbuf->data_len);
+
 	printf("ether_type=0X%X\n",rte_be_to_cpu_16(hdr->ether_type));
 	return 0;
 }
