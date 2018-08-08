@@ -1,6 +1,11 @@
 #! /bin/bash
 
-PCI_LIST="00:09.0 00:0a.0"
+function get_virtio_pci_addr()
+{
+	echo "`lspci | grep "irtio" | cut -d' ' -f 1`"
+
+}
+PCI_LIST=`get_virtio_pci_addr`
 
 function build_pci_argment()
 {
@@ -24,11 +29,13 @@ function dpdk_bind_interface()
 function prepare_env()
 {
 	mkdir -p /mnt/huge
+	grep -q "mnt/huge" /proc/mounts && umount /mnt/huge
 	mount -t hugetlbfs nodev /mnt/huge 
-	echo 32 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
+	echo 64 > /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
 	modprobe uio
-	if [  `lsmod | grep -q "igb_uio"` ] ;
+	if ! `lsmod | grep -q "igb_uio"` ;
 	then
+		echo "insmod igb_uio"
 		insmod ./dpdk/x86_64-native-linuxapp-gcc/kmod/igb_uio.ko
 	fi;
 
@@ -42,4 +49,4 @@ function prepare_env()
 prepare_env
 white_list=`build_pci_argment`
 
-./src/build/do $white_list
+gdb --args ./src/build/do $white_list

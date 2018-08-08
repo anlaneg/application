@@ -3,6 +3,8 @@
 
 #include "rte_eal.h"
 #include "rte_ethdev.h"
+#include "rte_cycles.h"
+#include "rte_malloc.h"
 
 int app_parse_args(int argc,char**argv);
 
@@ -39,6 +41,34 @@ static inline int app_dump_args(int argc,char**argv)
 	return 0;
 }
 
+static int
+poll_burst(void *args)
+{
+#define MAX_IDLE           (10000)
+	struct rte_mbuf *pkts_burst[48];
+	unsigned i, nb_rx = 0;
+	uint64_t total;
+	args=args;
+
+	total = 48;
+	printf("start to receive total expect %"PRIu64"\n", total);
+
+	while (1) {
+		nb_rx = rte_eth_rx_burst(0, 0,
+				&pkts_burst[0],
+					RTE_MIN(MAX_PKT_BURST, 48));
+		if (unlikely(nb_rx == 0)) {
+			continue;
+		}
+		for(i = 0 ; i < nb_rx ; ++i)
+		{
+			printf("recv %d packets\n",nb_rx);
+			rte_pktmbuf_free(pkts_burst[i]);
+		}
+	}
+	return 0;
+}
+
 int main(int argc,char**argv)
 {
 	int ret;
@@ -63,7 +93,8 @@ int main(int argc,char**argv)
 
 	/* create the mbuf pool */
 	nb_mbufs = RTE_MAX(nb_ports * (nb_rxd + nb_txd + MAX_PKT_BURST +
-			RTE_MAX_LCORE * MEMPOOL_CACHE_SIZE), 8192U);
+			RTE_MAX_LCORE * MEMPOOL_CACHE_SIZE), 8192);
+	nb_mbufs = RTE_MIN(16384U,nb_mbufs);
 	app_pktmbuf_pool = rte_pktmbuf_pool_create("mbuf_pool", nb_mbufs,
 			MEMPOOL_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE,
 			rte_socket_id());
@@ -166,6 +197,8 @@ int main(int argc,char**argv)
 #endif
 		}
 
+	rte_eal_mp_remote_launch(poll_burst, NULL,CALL_MASTER);
+	rte_eal_mp_wait_lcore();
 	RTE_ETH_FOREACH_DEV(portid) {
 		printf("Closing port %d...", portid);
 		rte_eth_dev_stop(portid);
