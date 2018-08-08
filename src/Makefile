@@ -1,7 +1,7 @@
 APP = do
 
 # all source are stored in SRCS-y
-SRCS-y := main.c
+SRCS-y := main.c netif_rx.c
 
 RTE_TARGET ?= x86_64-native-linuxapp-gcc
 include $(RTE_SDK)/mk/rte.vars.mk
@@ -10,7 +10,7 @@ include $(RTE_SDK)/mk/rte.vars.mk
 
 
 #CFLAGS += -O3
-CFLAGS += -g
+CFLAGS += -g 
 CFLAGS += $(WERROR_FLAGS)
 
 include $(RTE_SDK)/mk/rte.extapp.mk

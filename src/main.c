@@ -5,6 +5,7 @@
 #include "rte_ethdev.h"
 #include "rte_cycles.h"
 #include "rte_malloc.h"
+#include "netif_rx.h"
 
 int app_parse_args(int argc,char**argv);
 
@@ -63,6 +64,7 @@ poll_burst(void *args)
 		for(i = 0 ; i < nb_rx ; ++i)
 		{
 			printf("recv %d packets\n",nb_rx);
+			netif_rx_mbuf(pkts_burst[i]);
 			rte_pktmbuf_free(pkts_burst[i]);
 		}
 	}
