@@ -45,7 +45,6 @@ static inline int app_dump_args(int argc,char**argv)
 static int
 poll_burst(void *args)
 {
-#define MAX_IDLE           (10000)
 	struct rte_mbuf *pkts_burst[48];
 	unsigned i, nb_rx = 0;
 	uint64_t total;
