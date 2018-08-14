@@ -1,3 +1,6 @@
 [submodule "dpdk"]
 	path = dpdk
 	url = https://github.com/anlaneg/dpdk.git
+[submodule "mk"]
+	path = mk
+	url = https://github.com/anlaneg/amf.git
