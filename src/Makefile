@@ -20,7 +20,8 @@ PRECLEAN=clean_other
 
 include $(RTE_SDK)/mk/rte.extapp.mk
 make_other:
-	echo "make other******************************************8"
 	make -C $(AMF_PROJECT_ROOT)/src/pktdump all
+	make -C $(AMF_PROJECT_ROOT)/src/arp all
 clean_other:
 	make -C $(AMF_PROJECT_ROOT)/src/pktdump clean
+	make -C $(AMF_PROJECT_ROOT)/src/arp clean
