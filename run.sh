@@ -2,7 +2,7 @@
 
 function get_virtio_pci_addr()
 {
-	echo "`lspci | grep "irtio" | cut -d' ' -f 1`"
+	echo "`lspci -D | grep "irtio" | cut -d' ' -f 1`"
 
 }
 PCI_LIST=`get_virtio_pci_addr`
@@ -15,7 +15,22 @@ function build_pci_argment()
 	done;
 	echo "$DPDK_PCI_LIST"
 }
-
+function ifdown_netdev()
+{
+	for i in $PCI_LIST;
+	do
+		#echo "match $i"
+		for port in `ls -1 /sys/class/net/`;
+		do
+			#echo "read $port =>`readlink /sys/class/net/$port`"
+			if readlink /sys/class/net/$port | grep -q "/$i/";
+			then
+				echo "ifdown $port"
+				ifconfig $port down
+			fi;
+		done;
+	done;
+}
 function dpdk_bind_interface()
 {
 	
@@ -39,12 +54,12 @@ function prepare_env()
 		insmod ./dpdk/x86_64-native-linuxapp-gcc/kmod/igb_uio.ko
 	fi;
 
+	ifdown_netdev
 	dpdk_bind_interface
 	#./dpdk/usertools/dpdk-devbind.py --help
 	#./dpdk/usertools/dpdk-devbind.py -b virtio_pci 00:09.0 00:0a.0
 	#./dpdk/usertools/dpdk-devbind.py -s
 }
-
 
 prepare_env
 white_list=`build_pci_argment`
