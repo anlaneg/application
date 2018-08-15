@@ -51,8 +51,7 @@ Module.symvers
 Mkfile.old
 dkms.conf
 .dpdk-build-done
-build/
 .cproject
 .project
 .settings/
-
+build/
