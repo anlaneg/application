@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <pthread.h>
 
 /* Given ATTR, and TYPE, cast the ATTR to TYPE by first casting ATTR to
  * (void *). This is to suppress the alignment warning issued by clang. */
@@ -26,6 +27,9 @@
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 #define OVS_NOT_REACHED() (*(int*)0=0)
+#define COVERAGE_DEFINE(a)
+#define NL_DUMP_BUFSIZE         4096
+#define OVS_MUTEX_INITIALIZER { PTHREAD_MUTEX_INITIALIZER, "<unlocked>" }
 
 #define VLOG_ERR(fmt,...)  printf(fmt,##__VA_ARGS__)
 #define VLOG_WARN(fmt,...) printf(fmt,##__VA_ARGS__)
@@ -43,6 +47,11 @@ typedef uint64_t  ovs_be64;
 typedef struct {
         ovs_be32 hi, lo;
 } ovs_32aligned_be64;
+
+struct ovs_mutex {
+    pthread_mutex_t lock;
+    const char *where;          /* NULL if and only if uninitialized. */
+};
 
 #undef WORDS_BIGENDIAN
 /* Returns the value of 'x'. */

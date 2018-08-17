@@ -18,6 +18,7 @@
 #include <linux/rtnetlink.h>
 #include <poll.h>
 #include <net/if.h>
+#include <pthread.h>
 
 #include "list.h"
 #include "ofpbuf.h"
@@ -25,6 +26,7 @@
 #include "common.h"
 
 #include "netlink.h"
+#include "ovs-router.h"
 
 #ifndef SOL_NETLINK
 #define SOL_NETLINK 270
@@ -133,6 +135,18 @@ struct route_table_msg {
 	bool relevant; /* Should this message be processed? */
 	int nlmsg_type; /* e.g. RTM_NEWROUTE, RTM_DELROUTE. */
 	struct route_data rd; /* Data parsed from this message. */
+};
+
+struct nl_dump {
+    /* These members are immutable during the lifetime of the nl_dump. */
+    struct nl_sock *sock;       /* Socket being dumped. */
+    uint32_t nl_seq;            /* Expected nlmsg_seq for replies. */
+    int status ;     /* 0: dump in progress,
+                                 * positive errno: dump completed with error,
+                                 * EOF: dump completed successfully. */
+
+    /* 'mutex' protects 'status' and serializes access to 'sock'. */
+    struct ovs_mutex mutex;     /* Protects 'status', synchronizes recv(). */
 };
 /* Function called to report that a netdev has changed.  'change' describes the
  * specific change.  It may be null if the buffer of change information
@@ -871,6 +885,336 @@ static int route_table_parse(struct ofpbuf *buf, struct route_table_msg *change)
 	/* Success. */
 	return ipv4 ? RTNLGRP_IPV4_ROUTE : RTNLGRP_IPV6_ROUTE;
 }
+
+struct nl_pool {
+    struct nl_sock *socks[16];
+    int n;
+};
+
+static struct ovs_mutex pool_mutex = OVS_MUTEX_INITIALIZER;
+static struct nl_pool pools[MAX_LINKS];
+
+static int
+nl_pool_alloc(int protocol, struct nl_sock **sockp)
+{
+    struct nl_sock *sock = NULL;
+    struct nl_pool *pool;
+
+    assert(protocol >= 0 && protocol < ARRAY_SIZE(pools));
+
+    pthread_mutex_lock(&pool_mutex.lock);
+    pool = &pools[protocol];
+    if (pool->n > 0) {
+        sock = pool->socks[--pool->n];
+    }
+    pthread_mutex_unlock(&pool_mutex.lock);
+
+    if (sock) {
+        *sockp = sock;
+        return 0;
+    } else {
+        return nl_sock_create(protocol, sockp);
+    }
+}
+
+static uint32_t
+nl_sock_allocate_seq(struct nl_sock *sock, unsigned int n)
+{
+    uint32_t seq = sock->next_seq;
+
+    sock->next_seq += n;
+
+    /* Make it impossible for the next request for sequence numbers to wrap
+     * around to 0.  Start over with 1 to avoid ever using a sequence number of
+     * 0, because the kernel uses sequence number 0 for notifications. */
+    if (sock->next_seq >= UINT32_MAX / 2) {
+        sock->next_seq = 1;
+    }
+
+    return seq;
+}
+
+static int
+nl_sock_send__(struct nl_sock *sock, const struct ofpbuf *msg,
+               uint32_t nlmsg_seq, bool wait)
+{
+    struct nlmsghdr *nlmsg = nl_msg_nlmsghdr(msg);
+    int error;
+
+    nlmsg->nlmsg_len = msg->size;
+    nlmsg->nlmsg_seq = nlmsg_seq;
+    nlmsg->nlmsg_pid = sock->pid;
+    do {
+        int retval;
+        retval = send(sock->fd, msg->data, msg->size,
+                      wait ? 0 : MSG_DONTWAIT);
+        error = retval < 0 ? errno : 0;
+    } while (error == EINTR);
+    //log_nlmsg(__func__, error, msg->data, msg->size, sock->protocol);
+    if (!error) {
+        COVERAGE_INC(netlink_sent);
+    }
+    return error;
+}
+/* Starts a Netlink "dump" operation, by sending 'request' to the kernel on a
+ * Netlink socket created with the given 'protocol', and initializes 'dump' to
+ * reflect the state of the operation.
+ *
+ * 'request' must contain a Netlink message.  Before sending the message,
+ * nlmsg_len will be finalized to match request->size, and nlmsg_pid will be
+ * set to the Netlink socket's pid.  NLM_F_DUMP and NLM_F_ACK will be set in
+ * nlmsg_flags.
+ *
+ * The design of this Netlink socket library ensures that the dump is reliable.
+ *
+ * This function provides no status indication.  nl_dump_done() provides an
+ * error status for the entire dump operation.
+ *
+ * The caller must eventually destroy 'request'.
+ */
+void
+nl_dump_start(struct nl_dump *dump, int protocol, const struct ofpbuf *request)
+{
+    nl_msg_nlmsghdr(request)->nlmsg_flags |= NLM_F_DUMP | NLM_F_ACK;
+
+    pthread_mutex_init(&dump->mutex.lock,NULL);
+    pthread_mutex_lock(&dump->mutex.lock);
+    dump->status = nl_pool_alloc(protocol, &dump->sock);
+    if (!dump->status) {
+        dump->status = nl_sock_send__(dump->sock, request,
+                                      nl_sock_allocate_seq(dump->sock, 1),
+                                      true);
+    }
+    dump->nl_seq = nl_msg_nlmsghdr(request)->nlmsg_seq;
+    pthread_mutex_lock(&dump->mutex.lock);
+}
+
+static int
+nl_dump_refill(struct nl_dump *dump, struct ofpbuf *buffer)
+{
+    struct nlmsghdr *nlmsghdr;
+    int error;
+
+    while (!buffer->size) {
+        error = nl_sock_recv(dump->sock, buffer, NULL, false);
+        if (error) {
+            /* The kernel never blocks providing the results of a dump, so
+             * error == EAGAIN means that we've read the whole thing, and
+             * therefore transform it into EOF.  (The kernel always provides
+             * NLMSG_DONE as a sentinel.  Some other thread must have received
+             * that already but not yet signaled it in 'status'.)
+             *
+             * Any other error is just an error. */
+            return error == EAGAIN ? EOF : error;
+        }
+
+        nlmsghdr = nl_msg_nlmsghdr(buffer);
+        if (dump->nl_seq != nlmsghdr->nlmsg_seq) {
+            VLOG_DBG("ignoring seq %#"PRIx32" != expected %#"PRIx32,
+                        nlmsghdr->nlmsg_seq, dump->nl_seq);
+            ofpbuf_clear(buffer);
+        }
+    }
+
+    if (nl_msg_nlmsgerr(buffer, &error) && error) {
+        VLOG_INFO( "netlink dump request error (%s)",
+                     strerror(error));
+        ofpbuf_clear(buffer);
+        return error;
+    }
+
+    return 0;
+}
+
+static int
+nl_dump_next__(struct ofpbuf *reply, struct ofpbuf *buffer)
+{
+    struct nlmsghdr *nlmsghdr = nl_msg_next(buffer, reply);
+    if (!nlmsghdr) {
+        VLOG_WARN( "netlink dump contains message fragment");
+        return EPROTO;
+    } else if (nlmsghdr->nlmsg_type == NLMSG_DONE) {
+        return EOF;
+    } else {
+        return 0;
+    }
+}
+
+/* Attempts to retrieve another reply from 'dump' into 'buffer'. 'dump' must
+ * have been initialized with nl_dump_start(), and 'buffer' must have been
+ * initialized. 'buffer' should be at least NL_DUMP_BUFSIZE bytes long.
+ *
+ * If successful, returns true and points 'reply->data' and
+ * 'reply->size' to the message that was retrieved. The caller must not
+ * modify 'reply' (because it points within 'buffer', which will be used by
+ * future calls to this function).
+ *
+ * On failure, returns false and sets 'reply->data' to NULL and
+ * 'reply->size' to 0.  Failure might indicate an actual error or merely
+ * the end of replies.  An error status for the entire dump operation is
+ * provided when it is completed by calling nl_dump_done().
+ *
+ * Multiple threads may call this function, passing the same nl_dump, however
+ * each must provide independent buffers. This function may cache multiple
+ * replies in the buffer, and these will be processed before more replies are
+ * fetched. When this function returns false, other threads may continue to
+ * process replies in their buffers, but they will not fetch more replies.
+ */
+bool
+nl_dump_next(struct nl_dump *dump, struct ofpbuf *reply, struct ofpbuf *buffer)
+{
+    int retval = 0;
+
+    /* If the buffer is empty, refill it.
+     *
+     * If the buffer is not empty, we don't check the dump's status.
+     * Otherwise, we could end up skipping some of the dump results if thread A
+     * hits EOF while thread B is in the midst of processing a batch. */
+    if (!buffer->size) {
+    	pthread_mutex_lock(&dump->mutex.lock);
+        if (!dump->status) {
+            /* Take the mutex here to avoid an in-kernel race.  If two threads
+             * try to read from a Netlink dump socket at once, then the socket
+             * error can be set to EINVAL, which will be encountered on the
+             * next recv on that socket, which could be anywhere due to the way
+             * that we pool Netlink sockets.  Serializing the recv calls avoids
+             * the issue. */
+            dump->status = nl_dump_refill(dump, buffer);
+        }
+        retval = dump->status;
+        pthread_mutex_unlock(&dump->mutex.lock);
+    }
+
+    /* Fetch the next message from the buffer. */
+    if (!retval) {
+        retval = nl_dump_next__(reply, buffer);
+        if (retval) {
+            /* Record 'retval' as the dump status, but don't overwrite an error
+             * with EOF.  */
+        	pthread_mutex_lock(&dump->mutex.lock);
+            if (dump->status <= 0) {
+                dump->status = retval;
+            }
+            pthread_mutex_unlock(&dump->mutex.lock);
+        }
+    }
+
+    if (retval) {
+        reply->data = NULL;
+        reply->size = 0;
+    }
+    return !retval;
+}
+
+static void
+nl_pool_release(struct nl_sock *sock)
+{
+    if (sock) {
+        struct nl_pool *pool = &pools[sock->protocol];
+
+        pthread_mutex_lock(&pool_mutex.lock);
+        if (pool->n < ARRAY_SIZE(pool->socks)) {
+            pool->socks[pool->n++] = sock;
+            sock = NULL;
+        }
+        pthread_mutex_unlock(&pool_mutex.lock);
+
+        nl_sock_destroy(sock);
+    }
+}
+
+/* Completes Netlink dump operation 'dump', which must have been initialized
+ * with nl_dump_start().  Returns 0 if the dump operation was error-free,
+ * otherwise a positive errno value describing the problem. */
+int
+nl_dump_done(struct nl_dump *dump)
+{
+    int status;
+
+    pthread_mutex_lock(&dump->mutex.lock);
+    status = dump->status;
+    pthread_mutex_unlock(&dump->mutex.lock);
+
+    /* Drain any remaining messages that the client didn't read.  Otherwise the
+     * kernel will continue to queue them up and waste buffer space.
+     *
+     * XXX We could just destroy and discard the socket in this case. */
+    if (!status) {
+        uint64_t tmp_reply_stub[NL_DUMP_BUFSIZE / 8];
+        struct ofpbuf reply, buf;
+
+        ofpbuf_use_stub(&buf, tmp_reply_stub, sizeof tmp_reply_stub);
+        while (nl_dump_next(dump, &reply, &buf)) {
+            /* Nothing to do. */
+        }
+        ofpbuf_uninit(&buf);
+
+        pthread_mutex_lock(&dump->mutex.lock);
+        status = dump->status;
+        pthread_mutex_unlock(&dump->mutex.lock);
+        assert(status);
+    }
+
+    nl_pool_release(dump->sock);
+    pthread_mutex_destroy(&dump->mutex.lock);
+
+    return status == EOF ? 0 : status;
+}
+
+static void
+route_table_handle_msg(const struct route_table_msg *change)
+{
+    if (change->relevant && change->nlmsg_type == RTM_NEWROUTE) {
+        const struct route_data *rd = &change->rd;
+
+        ovs_router_insert(rd->mark, &rd->rta_dst, rd->rtm_dst_len,
+                          rd->local, rd->ifname, &rd->rta_gw);
+    }
+}
+
+static void
+route_map_clear(void)
+{
+    ovs_router_flush();
+}
+
+static int
+route_table_reset(void)
+{
+    struct nl_dump dump;
+    struct rtgenmsg *rtgenmsg;
+    uint64_t reply_stub[NL_DUMP_BUFSIZE / 8];
+    struct ofpbuf request, reply, buf;
+
+    route_map_clear();
+    //netdev_get_addrs_list_flush();
+    //route_table_valid = true;
+    //rt_change_seq++;
+
+    ofpbuf_init(&request, 0);
+
+    nl_msg_put_nlmsghdr(&request, sizeof *rtgenmsg, RTM_GETROUTE,
+                        NLM_F_REQUEST);
+
+    rtgenmsg = ofpbuf_put_zeros(&request, sizeof *rtgenmsg);
+    rtgenmsg->rtgen_family = AF_UNSPEC;
+
+    nl_dump_start(&dump, NETLINK_ROUTE, &request);
+    ofpbuf_uninit(&request);
+
+    ofpbuf_use_stub(&buf, reply_stub, sizeof reply_stub);
+    while (nl_dump_next(&dump, &reply, &buf)) {
+        struct route_table_msg msg;
+
+        if (route_table_parse(&reply, &msg)) {
+        	//处理netlink消息，进行路由表项的添加删除
+            route_table_handle_msg(&msg);
+        }
+    }
+    ofpbuf_uninit(&buf);
+
+    return nl_dump_done(&dump);
+}
 //=====
 static void route_table_change(const struct route_table_msg *change, void *aux) {
 	VLOG_WARN("rcv table change %p ", change);
@@ -882,7 +1226,7 @@ name_table_change(const struct rtnetlink_change *change,
 {
     /* Changes to interface status can cause routing table changes that some
      * versions of the linux kernel do not advertise for some reason. */
-
+	route_table_reset();
     VLOG_WARN("rcv name table change %p ", change);
 }
 
