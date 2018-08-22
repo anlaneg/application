@@ -62,6 +62,10 @@ static struct classifier cls;//router表对应的cls
  * the unit tests disable using the system routing table. */
 static bool use_system_routing_table = true;
 
+struct cls_rule {
+	struct ovs_list node;
+};
+
 struct ovs_router_entry {
     struct cls_rule cr;
     char output_bridge[IFNAMSIZ];//从哪个桥发出
@@ -90,6 +94,44 @@ ovs_router_disable_system_routing_table(void)
     use_system_routing_table = false;
 }
 
+bool
+route_table_fallback_lookup(const struct in6_addr *ip6_dst,
+                            char name[],
+                            struct in6_addr *gw6)
+{
+    *gw6 = in6addr_any;
+    return false;
+}
+
+/* Obtains an IPv4 address from 'device_name' and save the address in '*in4'.
+ * Returns 0 if successful, otherwise a positive errno value. */
+int
+netdev_get_in4_by_name(const char *device_name, struct in_addr *in4)//通过接口名称获取接口上的ipv4地址
+{
+#if 0
+    struct in6_addr *addrs;
+    int n;
+    int error = netdev_get_addresses_by_name(device_name, &addrs, &n);
+
+    in4->s_addr = 0;
+    if (!error) {
+        error = ENOENT;
+        for (int i = 0; i < n; i++) {
+            if (IN6_IS_ADDR_V4MAPPED(&addrs[i])) {
+                in4->s_addr = in6_addr_get_mapped_ipv4(&addrs[i]);
+                error = 0;
+                break;
+            }
+        }
+    }
+    free(addrs);
+
+    return error;
+#endif
+    in4->s_addr = 0;
+    return 0;
+}
+
 static bool
 ovs_router_lookup_fallback(const struct in6_addr *ip6_dst, char output_bridge[],
                            struct in6_addr *src6, struct in6_addr *gw6)
@@ -115,6 +157,7 @@ ovs_router_lookup(uint32_t mark, const struct in6_addr *ip6_dst,
                   char output_bridge[],
                   struct in6_addr *src, struct in6_addr *gw)
 {
+#if 0
     const struct cls_rule *cr;
     struct flow flow = {.ipv6_dst = *ip6_dst, .pkt_mark = mark};
 
@@ -146,13 +189,17 @@ ovs_router_lookup(uint32_t mark, const struct in6_addr *ip6_dst,
     }
     //如果没有查找到，则进行失败设置
     return ovs_router_lookup_fallback(ip6_dst, output_bridge, src, gw);
+#endif
+    return false;
 }
 
 //ovs_router_entry释放
 static void
 rt_entry_free(struct ovs_router_entry *p)
 {
+#if 0
     cls_rule_destroy(&p->cr);
+#endif
     free(p);
 }
 
@@ -361,7 +408,7 @@ scan_ipv4_route(const char *s, ovs_be32 *addr, unsigned int *plen)
 //命令行插入路由
 static void
 ovs_router_add(struct unixctl_conn *conn, int argc,
-              const char *argv[], void *aux OVS_UNUSED)
+              const char *argv[], void *aux)
 {
     struct in6_addr gw6 = in6addr_any;
     struct in6_addr ip6;
@@ -419,8 +466,8 @@ ovs_router_add(struct unixctl_conn *conn, int argc,
 
 //命令行路由删除
 static void
-ovs_router_del(struct unixctl_conn *conn, int argc OVS_UNUSED,
-              const char *argv[], void *aux OVS_UNUSED)
+ovs_router_del(struct unixctl_conn *conn, int argc,
+              const char *argv[], void *aux)
 {
     struct in6_addr ip6;
     uint32_t mark = 0;
@@ -451,8 +498,8 @@ ovs_router_del(struct unixctl_conn *conn, int argc OVS_UNUSED,
 
 //命令行显示
 static void
-ovs_router_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
-               const char *argv[] OVS_UNUSED, void *aux OVS_UNUSED)
+ovs_router_show(struct unixctl_conn *conn, int argc,
+               const char *argv[] OVS_UNUSED, void *aux)
 {
     struct ovs_router_entry *rt;
     struct ds ds = DS_EMPTY_INITIALIZER;
@@ -494,7 +541,7 @@ ovs_router_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
 //命令行路由查询
 static void
 ovs_router_lookup_cmd(struct unixctl_conn *conn, int argc,
-                      const char *argv[], void *aux OVS_UNUSED)
+                      const char *argv[], void *aux)
 {
     struct in6_addr gw, src = in6addr_any;
     char iface[IFNAMSIZ];
@@ -549,7 +596,7 @@ ovs_router_flush(void)
 }
 
 static void
-ovs_router_flush_handler(void *aux OVS_UNUSED)
+ovs_router_flush_handler(void *aux)
 {
     ovs_router_flush();
 }
