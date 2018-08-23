@@ -4,3 +4,6 @@
 [submodule "mk"]
 	path = mk
 	url = https://github.com/anlaneg/amf.git
+[submodule "src/lib/libnl"]
+	path = src/lib/libnl
+	url = https://github.com/anlaneg/libnl
