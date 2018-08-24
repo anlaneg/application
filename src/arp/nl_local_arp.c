@@ -12,6 +12,7 @@
 #include "netlink/addr.h"
 #include "netlink/cache.h"
 
+static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
 int nl_arp_table_reset() {
@@ -114,21 +115,15 @@ static int neigh_print(struct rtnl_neigh*neigh, void*args) {
 	return 0;
 }
 
-int nl_arp_table_list() {
+void nl_arp_table_list() {
 	nl_arp_table_foreach(neigh_print, NULL);
-	return 0;
-}
-
-int nl_arp_table_destory() {
-	return -1;
 }
 
 int nl_arp_table_monitor() {
 	return -1;
 }
 
-int nl_arp_table_init() {
-	static struct nl_sock *s_sock = NULL;
+int nl_local_arp_table_init() {
 	s_sock = nl_socket_alloc();
 	if (!s_sock) {
 		goto OUT;
@@ -162,6 +157,13 @@ int nl_arp_table_init() {
 	OUT: {
 		return -1;
 	}
+}
+
+void nl_local_arp_table_destory() {
+	nl_cache_mngt_unprovide(s_cache);
+	s_cache = NULL;
+	nl_socket_free(s_sock);
+	s_sock = NULL;
 }
 
 int main(int argc, char**argv) {
