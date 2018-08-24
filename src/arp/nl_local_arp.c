@@ -12,7 +12,6 @@
 #include "netlink/addr.h"
 #include "netlink/cache.h"
 
-static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
 int nl_arp_table_reset() {
@@ -129,6 +128,7 @@ int nl_arp_table_monitor() {
 }
 
 int nl_arp_table_init() {
+	static struct nl_sock *s_sock = NULL;
 	s_sock = nl_socket_alloc();
 	if (!s_sock) {
 		goto OUT;
