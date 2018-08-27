@@ -31,7 +31,7 @@ do{\
 }while(0)
 
 #define LOG_COMMON(level,fmt,...)\
-	LOG_INNER(level,"be_la[%s:%d]: "fmt,__FILE__,__LINE__,##__VA_ARGS__);
+	LOG_INNER(level,"[%s:%d]: "fmt,__FILE__,__LINE__,##__VA_ARGS__);
 
 #define LOG(fmt,...)\
 	LOG_COMMON(LOG_LEVEL_LOG,fmt,##__VA_ARGS__)

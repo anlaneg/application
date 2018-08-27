@@ -12,11 +12,24 @@
 #include "netlink/addr.h"
 #include "netlink/cache.h"
 
+#include "event2/event.h"
+#include "event2/event_struct.h"
+
+#include "common/log.h"
+#include "netlink/nl_socket.h"
+#include "nl_local_arp.h"
+
 static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
 int nl_arp_table_reset() {
-	return -1;
+	if (rtnl_neigh_alloc_cache(s_sock, &s_cache)) {
+		return -1;
+	}
+
+	//生成全局可用的邻居表
+	nl_cache_mngt_provide(s_cache);
+	return 0;
 }
 
 int nl_arp_table_foreach(int (*func)(struct rtnl_neigh*, void*), void*args) {
@@ -50,7 +63,9 @@ int arp_table_lookup_cmp(struct rtnl_neigh*neigh, void*args) {
 	struct nl_addr* n_dst = rtnl_neigh_get_dst(neigh);
 	struct nl_addr * n_lladdr = rtnl_neigh_get_lladdr(neigh);
 
-	if ((n_state != -1 && n_dst && n_lladdr) && (n_state & (NUD_REACHABLE|NUD_PERMANENT)) && !nl_addr_cmp(n_dst, dst)) {
+	if ((n_state != -1 && n_dst && n_lladdr)
+			&& (n_state & (NUD_REACHABLE | NUD_PERMANENT))
+			&& !nl_addr_cmp(n_dst, dst)) {
 		if (nl_addr_get_len(n_lladdr) == 6) {
 			memcpy(mac, (char*) nl_addr_get_binary_addr(n_lladdr), 6);
 			return 1;
@@ -67,89 +82,73 @@ int nl_arp_table_lookup(struct nl_addr *dst, char*mac) {
 	return -1;
 }
 
-static inline char* print_ip1(void*data) {
-	int32_t ip = *((int32_t*) data);
-	static char ipstr[16]; //"255.255.255.255";
-	unsigned char*byte = (unsigned char*) &ip;
-	snprintf(ipstr, 16, "%u.%u.%u.%u", byte[0], byte[1], byte[2], byte[3]);
-	ipstr[15] = '\0';
-	return ipstr;
-}
+static void arp_monitor_event_process(evutil_socket_t fd, short event, void*arg) {
 
-static inline char* print_mac1(void*data) {
-	unsigned char*byte = (unsigned char*) data;
-	static char macstr[18]; //AA:BB:CC:DD:EE:FF
-	//char*byte = mac;
-	snprintf(macstr, 18, "%02X:%02X:%02X:%02X:%02X:%02X", byte[0], byte[1],
-			byte[2], byte[3], byte[4], byte[5]);
-	macstr[17] = '\0';
-	return macstr;
-}
-
-static inline char* print_nl_addr(struct nl_addr* addr)
-{
-	int len = nl_addr_get_len(addr);
-	switch(len)
-	{
-	case 4:
-		return print_ip1(nl_addr_get_binary_addr(addr));
-	case 6:
-		return print_mac1(nl_addr_get_binary_addr(addr));
-	default:
-		return "length is other";
+	//读取fd
+	//XXX
+	LOG("arp table changed\n");
+	nl_sock_mcmessage_process(fd,event,arg);
+	if (nl_arp_table_reset()) {
+#if 0
+		struct event* myself = (struct event*) arg;
+		event_del(myself);
+		if (nl_arp_table_monitor(myself->ev_base)) {
+			ERROR("****ARP table monitor fail*****!\n");
+		}
+#else
+		ERROR("****ARP table monitor fail*****!\n");
+#endif
 	}
+	nl_arp_table_show();
+	return;
 }
 
-static int neigh_print(struct rtnl_neigh*neigh, void*args) {
-	int n_state = rtnl_neigh_get_state(neigh);
-	struct nl_addr* n_dst = rtnl_neigh_get_dst(neigh);
-	struct nl_addr * n_lladdr = rtnl_neigh_get_lladdr(neigh);
-	if(n_dst && n_lladdr)
-	{
-		printf("state=%0X",n_state);
-		printf(",ip addr:%s",print_nl_addr(n_dst));
-		printf(",netlink addr:%s\n",print_nl_addr(n_lladdr));
+static int nl_arp_table_monitor(struct event_base*base) {
+	struct event* read_event;
+
+	static struct nl_sock * socket = NULL;
+	if (socket) {
+		nl_socket_free(socket);
 	}
-	//struct nl_dump_params params = { .dp_type = NL_DUMP_LINE, .dp_fd = stdout, };
-	//dump_from_ops((struct nl_object *) neigh, &params);
-	return 0;
-}
 
-void nl_arp_table_list() {
-	nl_arp_table_foreach(neigh_print, NULL);
-}
-
-int nl_arp_table_monitor() {
-	return -1;
-}
-
-int nl_local_arp_table_init() {
-	s_sock = nl_socket_alloc();
-	if (!s_sock) {
+	socket = nl_socket_alloc();
+	if (!socket) {
 		goto OUT;
 	}
 
-	if (nl_connect(s_sock, NETLINK_ROUTE)) {
+	if (nl_connect(socket, NETLINK_ROUTE)) {
 		goto FREE_SOCK;
 	}
 
-	//TODO bind s_sock->fd to libevent
-
-	if (rtnl_neigh_alloc_cache(s_sock, &s_cache)) {
+	if (nl_sock_join_mcgroup(nl_socket_get_fd(socket), RTNLGRP_NEIGH)) {
 		goto FREE_SOCK;
 	}
 
-	//生成全局可用的邻居表
-	nl_cache_mngt_provide(s_cache);
+	//read request event
+	read_event = event_new(base, nl_socket_get_fd(socket), EV_READ | EV_PERSIST,
+			arp_monitor_event_process, event_self_cbarg());
+
+	if (!read_event) {
+		ERROR("alloc read event fail!\n");
+		goto FREE_SOCK;
+	}
+
+	if (event_add(read_event, NULL)) {
+		goto FREE_EVENT;
+	}
+
+	if (nl_arp_table_reset()) {
+		goto DEL_EVENT;
+	}
 
 	return 0;
 
-#if 0
-	FREE_CACHE: {
-		nl_cache_free(s_cache);
-		s_cache = NULL;
+	DEL_EVENT: {
+		event_del(read_event);
 	}
-#endif
+	FREE_EVENT: {
+		event_free(read_event);
+	}
 	FREE_SOCK: {
 		nl_socket_free(s_sock);
 		s_sock = NULL;
@@ -159,31 +158,34 @@ int nl_local_arp_table_init() {
 	}
 }
 
-void nl_local_arp_table_destory() {
+int nl_arp_table_init(struct event_base*base) {
+	s_sock = nl_socket_alloc();
+	if (!s_sock) {
+		goto OUT;
+	}
+
+	if (nl_connect(s_sock, NETLINK_ROUTE)) {
+		goto FREE_SOCK;
+	}
+
+	if (nl_arp_table_monitor(base)) {
+		goto FREE_SOCK;
+	}
+
+	return 0;
+
+	FREE_SOCK: {
+		nl_socket_free(s_sock);
+		s_sock = NULL;
+	}
+	OUT: {
+		return -1;
+	}
+}
+
+void nl_arp_table_destory() {
 	nl_cache_mngt_unprovide(s_cache);
 	s_cache = NULL;
 	nl_socket_free(s_sock);
 	s_sock = NULL;
-}
-
-int main(int argc, char**argv) {
-	char mac[6];
-	char dstip[4] = { 10, 10, 10, 8 };
-	struct nl_addr* dst;
-
-	if(nl_arp_table_init())
-	{
-		return 1;
-	}
-
-	if (!(dst = nl_addr_build(AF_INET, dstip, 4))) {
-		return 1;
-	}
-
-	nl_arp_table_list();
-	if (nl_arp_table_lookup(dst, mac)) {
-		return 1;
-	}
-	printf("%s\n",print_mac1(mac));
-	return 0;
 }
