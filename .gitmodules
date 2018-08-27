@@ -7,3 +7,6 @@
 [submodule "src/lib/libnl"]
 	path = src/lib/libnl
 	url = https://github.com/anlaneg/libnl
+[submodule "src/lib/libevent"]
+	path = src/lib/libevent
+	url = https://github.com/anlaneg/libevent.git
