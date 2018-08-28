@@ -11,12 +11,13 @@
 #include <arpa/inet.h>
 #include <linux/socket.h>
 #include <linux/netlink.h>
+
+#include "kroute_table.h"
 #include "netlink/route/route.h"
 #include "netlink/route/nexthop.h"
 #include "netlink/addr.h"
 #include "netlink/cache.h"
 
-#include "nl_local_route.h"
 
 static inline char* print_ip1(void*data) {
 	int32_t ip = *((int32_t*) data);
@@ -57,6 +58,6 @@ static inline int route_print(struct nl_object* obj, void*args) {
 	return 0;
 }
 
-void nl_route_table_show(void) {
-	nl_route_table_foreach(route_print, NULL);
+void kroute_table_show(void) {
+	kroute_table_foreach(route_print, NULL);
 }

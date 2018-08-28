@@ -9,10 +9,11 @@
 #include <assert.h>
 #include <linux/socket.h>
 #include <linux/netlink.h>
+
+#include "karp_table.h"
 #include "netlink/route/neighbour.h"
 #include "netlink/addr.h"
 #include "netlink/cache.h"
-#include "nl_local_arp.h"
 
 static inline char* print_ip1(void*data) {
 	int32_t ip = *((int32_t*) data);
@@ -59,6 +60,6 @@ static int neigh_print(struct rtnl_neigh*neigh, void*args) {
 	return 0;
 }
 
-void nl_arp_table_show() {
-	nl_arp_table_foreach(neigh_print, NULL);
+void karp_table_show() {
+	karp_table_foreach(neigh_print, NULL);
 }

@@ -17,12 +17,13 @@
 
 #include "common/log.h"
 #include "netlink/nl_socket.h"
-#include "nl_local_arp.h"
+#include "common/die.h"
+#include "karp_table.h"
 
 static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
-int nl_arp_table_reset() {
+int karp_table_reset() {
 	if (rtnl_neigh_alloc_cache(s_sock, &s_cache)) {
 		return -1;
 	}
@@ -32,7 +33,7 @@ int nl_arp_table_reset() {
 	return 0;
 }
 
-int nl_arp_table_foreach(int (*func)(struct rtnl_neigh*, void*), void*args) {
+int karp_table_foreach(int (*func)(struct rtnl_neigh*, void*), void*args) {
 	int ret;
 
 	struct nl_object * obj;
@@ -74,36 +75,34 @@ int arp_table_lookup_cmp(struct rtnl_neigh*neigh, void*args) {
 	return 0;
 }
 
-int nl_arp_table_lookup(struct nl_addr *dst, char*mac) {
+int karp_table_lookup(struct nl_addr *dst, char*mac) {
 	struct arp_lookup_args args = { .dst = dst, .mac = mac };
-	if (nl_arp_table_foreach(arp_table_lookup_cmp, &args)) {
+	if (karp_table_foreach(arp_table_lookup_cmp, &args)) {
 		return 0;
 	}
 	return -1;
 }
 
 static void arp_monitor_event_process(evutil_socket_t fd, short event, void*arg) {
-
-	//读取fd
-	//XXX
 	LOG("arp table changed\n");
-	nl_sock_mcmessage_process(fd,event,arg);
-	if (nl_arp_table_reset()) {
+	//nl_sock_mcmessage_process(fd,event,arg);
+	if (karp_table_reset()) {
 #if 0
 		struct event* myself = (struct event*) arg;
 		event_del(myself);
-		if (nl_arp_table_monitor(myself->ev_base)) {
+		if (karp_table_monitor(myself->ev_base)) {
 			ERROR("****ARP table monitor fail*****!\n");
 		}
 #else
 		ERROR("****ARP table monitor fail*****!\n");
+		DIE();
 #endif
 	}
-	nl_arp_table_show();
+	karp_table_show();
 	return;
 }
 
-static int nl_arp_table_monitor(struct event_base*base) {
+static int karp_table_monitor(struct event_base*base) {
 	struct event* read_event;
 
 	static struct nl_sock * socket = NULL;
@@ -137,7 +136,7 @@ static int nl_arp_table_monitor(struct event_base*base) {
 		goto FREE_EVENT;
 	}
 
-	if (nl_arp_table_reset()) {
+	if (karp_table_reset()) {
 		goto DEL_EVENT;
 	}
 
@@ -158,7 +157,7 @@ static int nl_arp_table_monitor(struct event_base*base) {
 	}
 }
 
-int nl_arp_table_init(struct event_base*base) {
+int karp_table_init(struct event_base*base) {
 	s_sock = nl_socket_alloc();
 	if (!s_sock) {
 		goto OUT;
@@ -168,7 +167,7 @@ int nl_arp_table_init(struct event_base*base) {
 		goto FREE_SOCK;
 	}
 
-	if (nl_arp_table_monitor(base)) {
+	if (karp_table_monitor(base)) {
 		goto FREE_SOCK;
 	}
 
@@ -183,7 +182,7 @@ int nl_arp_table_init(struct event_base*base) {
 	}
 }
 
-void nl_arp_table_destory() {
+void karp_table_destory() {
 	nl_cache_mngt_unprovide(s_cache);
 	s_cache = NULL;
 	nl_socket_free(s_sock);

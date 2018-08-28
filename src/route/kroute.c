@@ -21,12 +21,13 @@
 #include "common/log.h"
 #include "netlink/nl_socket.h"
 
-#include "nl_local_route.h"
+#include "common/die.h"
+#include "kroute_table.h"
 
 static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
-int nl_route_table_reset() {
+int kroute_table_reset() {
 	//如果指定为AF_UNSPEC则同时包含ipv4,ipv6及其它
 	if (rtnl_route_alloc_cache(s_sock,/*AF_UNSPEC*/AF_INET, 0, &s_cache)) {
 		return -1;
@@ -37,7 +38,7 @@ int nl_route_table_reset() {
 	return 0;
 }
 
-int nl_route_table_foreach(int (*func)(struct nl_object *, void*), void*args) {
+int kroute_table_foreach(int (*func)(struct nl_object *, void*), void*args) {
 	int ret;
 	struct nl_object*obj;
 	for (obj = nl_cache_get_first(s_cache); obj != NULL; obj =
@@ -89,12 +90,12 @@ static int route_ipv4_lookup(struct nl_object *obj, void*p) {
 	return 0;
 }
 
-int nl_route_table_lookup_ipv4(uint32_t dst, uint32_t* gw) {
+int kroute_table_lookup_ipv4(uint32_t dst, uint32_t* gw) {
 	assert(gw);
 #define INVALID_PREFIX_LEN -1
 	struct lookup_args arg = { .dst = dst, .out_gw = *gw, .prelen =
 	INVALID_PREFIX_LEN };
-	if (nl_route_table_foreach(route_ipv4_lookup, &arg)) {
+	if (kroute_table_foreach(route_ipv4_lookup, &arg)) {
 		return 0;
 	}
 	if (arg.prelen == INVALID_PREFIX_LEN) {
@@ -104,7 +105,7 @@ int nl_route_table_lookup_ipv4(uint32_t dst, uint32_t* gw) {
 	return 0;
 }
 
-void nl_route_table_destory() {
+void kroute_table_destory() {
 	nl_cache_mngt_unprovide(s_cache);
 	s_cache = NULL;
 	nl_socket_free(s_sock);
@@ -113,12 +114,9 @@ void nl_route_table_destory() {
 
 static void route_monitor_event_process(evutil_socket_t fd, short event,
 		void*arg) {
-
-	//读取fd
-	//XXX
 	LOG("route table changed\n");
-	nl_sock_mcmessage_process(fd,event,arg);
-	if (nl_route_table_reset()) {
+	//nl_sock_mcmessage_process(fd,event,arg);
+	if (kroute_table_reset()) {
 #if 0
 		struct event* myself = (struct event*) arg;
 		event_del(myself);
@@ -127,13 +125,14 @@ static void route_monitor_event_process(evutil_socket_t fd, short event,
 		}
 #else
 		ERROR("****route table monitor fail*****!\n");
+		DIE();
 #endif
 	}
-	nl_route_table_show();
+	kroute_table_show();
 	return;
 }
 
-static int nl_route_table_monitor(struct event_base*base) {
+static int kroute_table_monitor(struct event_base*base) {
 	struct event* read_event;
 
 	static struct nl_sock * socket = NULL;
@@ -167,7 +166,7 @@ static int nl_route_table_monitor(struct event_base*base) {
 		goto FREE_EVENT;
 	}
 
-	if (nl_route_table_reset()) {
+	if (kroute_table_reset()) {
 		goto DEL_EVENT;
 	}
 
@@ -188,7 +187,7 @@ static int nl_route_table_monitor(struct event_base*base) {
 	}
 }
 
-int nl_route_table_init(struct event_base*base) {
+int kroute_table_init(struct event_base*base) {
 	s_sock = nl_socket_alloc();
 	if (!s_sock) {
 		goto OUT;
@@ -199,7 +198,7 @@ int nl_route_table_init(struct event_base*base) {
 	}
 
 	//TODO bind s_sock->fd to libevent
-	if (nl_route_table_monitor(base)) {
+	if (kroute_table_monitor(base)) {
 		goto FREE_SOCK;
 	}
 	return 0;
