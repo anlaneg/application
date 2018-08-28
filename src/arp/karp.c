@@ -27,7 +27,10 @@ static struct nl_cache* s_cache = NULL;
 static inline void free_nl_cache(struct nl_cache* cache) {
 	if (cache) {
 		nl_cache_mngt_unprovide(cache);
-		cache = NULL;
+		//nl_cache_mngt_unprovide中有一个bug,没有调用nl_cache_put函数
+		//这里手动调用一遍
+		nl_cache_put(cache);
+		nl_cache_free(cache);
 	}
 }
 int karp_table_reset() {
@@ -36,6 +39,7 @@ int karp_table_reset() {
 	if (rtnl_neigh_alloc_cache(s_sock, &cache)) {
 		return -1;
 	}
+
 	//生成全局可用的邻居表
 	nl_cache_mngt_provide(cache);
 
@@ -98,7 +102,7 @@ int karp_table_lookup(struct nl_addr *dst, char*mac) {
 
 static void arp_monitor_event_process(evutil_socket_t fd, short event, void*arg) {
 	LOG("arp table changed\n");
-	//nl_sock_mcmessage_process(fd,event,arg);
+	nl_sock_mcmessage_process(fd,event,arg);
 	if (karp_table_reset()) {
 #if 0
 		struct event* myself = (struct event*) arg;
@@ -197,6 +201,7 @@ int karp_table_init(struct event_base*base) {
 
 void karp_table_destory() {
 	free_nl_cache(s_cache);
+	s_cache = NULL;
 	nl_socket_free(s_sock);
 	s_sock = NULL;
 }

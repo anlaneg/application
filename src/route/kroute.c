@@ -23,18 +23,36 @@
 
 #include "common/die.h"
 #include "kroute_table.h"
+#include "common/rcu.h"
 
 static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
+static inline void free_nl_cache(struct nl_cache* cache) {
+	if (cache) {
+		nl_cache_mngt_unprovide(cache);
+		//nl_cache_mngt_unprovide中有一个bug,没有调用nl_cache_put函数
+		//这里手动调用一遍
+		nl_cache_put(cache);
+		nl_cache_free(cache);
+	}
+}
+
 int kroute_table_reset() {
+	struct nl_cache* cache = NULL;
+	struct nl_cache* old = NULL;
 	//如果指定为AF_UNSPEC则同时包含ipv4,ipv6及其它
-	if (rtnl_route_alloc_cache(s_sock,/*AF_UNSPEC*/AF_INET, 0, &s_cache)) {
+	if (rtnl_route_alloc_cache(s_sock,/*AF_UNSPEC*/AF_INET, 0, &cache)) {
 		return -1;
 	}
 
-	//生成全局可用的邻居表
-	nl_cache_mngt_provide(s_cache);
+	//生成全局可用的cache表
+	nl_cache_mngt_provide(cache);
+
+	old = s_cache;
+	s_cache = cache;
+	rcu_wait();
+	free_nl_cache(old);
 	return 0;
 }
 
@@ -106,7 +124,7 @@ int kroute_table_lookup_ipv4(uint32_t dst, uint32_t* gw) {
 }
 
 void kroute_table_destory() {
-	nl_cache_mngt_unprovide(s_cache);
+	free_nl_cache(s_cache);
 	s_cache = NULL;
 	nl_socket_free(s_sock);
 	s_sock = NULL;
@@ -115,7 +133,7 @@ void kroute_table_destory() {
 static void route_monitor_event_process(evutil_socket_t fd, short event,
 		void*arg) {
 	LOG("route table changed\n");
-	//nl_sock_mcmessage_process(fd,event,arg);
+	nl_sock_mcmessage_process(fd,event,arg);
 	if (kroute_table_reset()) {
 #if 0
 		struct event* myself = (struct event*) arg;
