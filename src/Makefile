@@ -14,7 +14,7 @@ CFLAGS += -g
 CFLAGS += $(WERROR_FLAGS)
 CFLAGS += -I$(AMF_PROJECT_ROOT)/src/pktdump/
 LIBPKTDUMP_PATH=$(AMF_PROJECT_ROOT)/src/lib/libpktdump
-LDFLAGS += -L$(AMF_PROJECT_ROOT)/src/pktdump/ -L$(LIBPKTDUMP_PATH)/tcpdump -L$(LIBPKTDUMP_PATH)/libpcap -lpktdump -lnetdissect -lpcap
+LDFLAGS += -L$(AMF_PROJECT_ROOT)/src/pktdump/ -L$(LIBPKTDUMP_PATH)/tcpdump -L$(LIBPKTDUMP_PATH)/libpcap -lpktdump -lnetdissect -lpcap -lcrypto
 
 PREBUILD=make_other
 PRECLEAN=clean_other
