@@ -24,14 +24,14 @@
 static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
-
-static inline void free_nl_cache(struct nl_cache* cache)
-{
-	nl_cache_mngt_unprovide(cache);
-	cache = NULL;
+static inline void free_nl_cache(struct nl_cache* cache) {
+	if (cache) {
+		nl_cache_mngt_unprovide(cache);
+		cache = NULL;
+	}
 }
 int karp_table_reset() {
-	struct nl_cache* cache=NULL;
+	struct nl_cache* cache = NULL;
 	struct nl_cache* old = NULL;
 	if (rtnl_neigh_alloc_cache(s_sock, &cache)) {
 		return -1;
