@@ -13,7 +13,8 @@ include $(RTE_SDK)/mk/rte.vars.mk
 CFLAGS += -g 
 CFLAGS += $(WERROR_FLAGS)
 CFLAGS += -I$(AMF_PROJECT_ROOT)/src/pktdump/
-LDFLAGS += -L$(AMF_PROJECT_ROOT)/src/pktdump/ -lpktdump
+LIBPKTDUMP_PATH=$(AMF_PROJECT_ROOT)/src/lib/libpktdump
+LDFLAGS += -L$(AMF_PROJECT_ROOT)/src/pktdump/ -L$(LIBPKTDUMP_PATH)/tcpdump -L$(LIBPKTDUMP_PATH)/libpcap -lpktdump -lnetdissect -lpcap
 
 PREBUILD=make_other
 PRECLEAN=clean_other

@@ -13,3 +13,9 @@
 [submodule "src/lib/liburcu"]
 	path = src/lib/liburcu
 	url = https://github.com/anlaneg/userspace-rcu.git
+[submodule "src/lib/libpktdump/tcpdump"]
+	path = src/lib/libpktdump/tcpdump
+	url = https://github.com/anlaneg/tcpdump.git
+[submodule "src/lib/libpktdump/libpcap"]
+	path = src/lib/libpktdump/libpcap
+	url = https://github.com/anlaneg/libpcap.git
