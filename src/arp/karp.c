@@ -19,17 +19,30 @@
 #include "netlink/nl_socket.h"
 #include "common/die.h"
 #include "karp_table.h"
+#include "common/rcu.h"
 
 static struct nl_sock *s_sock = NULL;
 static struct nl_cache* s_cache = NULL;
 
+
+static inline void free_nl_cache(struct nl_cache* cache)
+{
+	nl_cache_mngt_unprovide(cache);
+	cache = NULL;
+}
 int karp_table_reset() {
-	if (rtnl_neigh_alloc_cache(s_sock, &s_cache)) {
+	struct nl_cache* cache=NULL;
+	struct nl_cache* old = NULL;
+	if (rtnl_neigh_alloc_cache(s_sock, &cache)) {
 		return -1;
 	}
-
 	//生成全局可用的邻居表
-	nl_cache_mngt_provide(s_cache);
+	nl_cache_mngt_provide(cache);
+
+	old = s_cache;
+	s_cache = cache;
+	rcu_wait();
+	free_nl_cache(old);
 	return 0;
 }
 
@@ -183,8 +196,7 @@ int karp_table_init(struct event_base*base) {
 }
 
 void karp_table_destory() {
-	nl_cache_mngt_unprovide(s_cache);
-	s_cache = NULL;
+	free_nl_cache(s_cache);
 	nl_socket_free(s_sock);
 	s_sock = NULL;
 }
