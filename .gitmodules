@@ -10,3 +10,6 @@
 [submodule "src/lib/libevent"]
 	path = src/lib/libevent
 	url = https://github.com/anlaneg/libevent.git
+[submodule "src/lib/liburcu"]
+	path = src/lib/liburcu
+	url = https://github.com/anlaneg/userspace-rcu.git
