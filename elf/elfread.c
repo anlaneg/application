@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <assert.h>
 
 //https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
 
@@ -221,7 +222,8 @@ int print_elf64_header(Elf64_Ehdr*hdr)
     LOG("Magic：");
     print_elf_magic(hdr->e_ident, sizeof(hdr->e_ident));
     LOG("ELF type(0X1=ELF32,0X2=ELF64):0X%X\n", hdr->e_ident[4]);
-    LOG("DATA(0X1=\"little endianness\",0X2=\"big endianness\"):0X%X\n", hdr->e_ident[5]);
+    LOG("DATA(0X1=\"little endianness\",0X2=\"big endianness\"):0X%X\n",
+            hdr->e_ident[5]);
     LOG("version(magic):0X%X\n", hdr->e_ident[6]);
     print_elf_ABI(hdr->e_ident[7], hdr->e_ident[8]);
     LOG("PAD:0X%X, 0X%X, 0X%X, 0X%X, 0X%X, 0X%X, 0X%X\n", hdr->e_ident[9],
@@ -292,40 +294,40 @@ int print_prog_type(uint32_t type)
     switch (type)
     {
     case PT_NULL:
-        LOG("Program header table entry unused");
+        LOG("NULL Program header table entry unused");
         break;
     case PT_LOAD:
-        LOG("Loadable segment");
+        LOG("LOAD Loadable segment");
         break;
     case PT_DYNAMIC:
-        LOG("Dynamic linking information");
+        LOG("DYNAMIC Dynamic linking information");
         break;
     case PT_INTERP:
-        LOG("Interpreter information");
+        LOG("INTERP Interpreter information");
         break;
     case PT_NOTE:
-        LOG("Auxiliary information");
+        LOG("NOTE Auxiliary information");
         break;
     case PT_SHLIB:
-        LOG("reserved");
+        LOG("SHLIB reserved");
         break;
     case PT_PHDR:
-        LOG("segment containing program header table itself");
+        LOG("PHDR segment containing program header table itself");
         break;
     case PT_LOOS:
-        LOG("PT_LOOS");
+        LOG("LOOS PT_LOOS");
         break;
     case PT_HIOS:
-        LOG("PT_HIOS");
+        LOG("HIOS PT_HIOS");
         break;
     case PT_LOPROC:
-        LOG("PT_LOPROC");
+        LOG("LOPROC PT_LOPROC");
         break;
     case PT_HIPROC:
-        LOG("PT_HIPROC");
+        LOG("HIPROC PT_HIPROC");
         break;
     default:
-        LOG("unkonow");
+        LOG("unkonow %d\n",type);
     }
     LOG("\n");
     return 0;
@@ -334,6 +336,9 @@ int print_prog_type(uint32_t type)
 int print_prog_header(Elf64_Phdr*hdr)
 {
     print_prog_type(hdr->p_type);
+    if (hdr->p_type != PT_NULL) {
+        return 0;
+    }
 #if 0
     Elf64_Word p_flags;
     Elf64_Off p_offset; /* Segment file offset */
@@ -350,6 +355,8 @@ int main(int argc, char**argv)
 {
     off_t size;
     void*elf_prog;
+    int i;
+    Elf64_Phdr* phdr;
 
     if (!(elf_prog = load_elf_prog(argv[1], &size))) {
         printf("load elf prog %s fail\n", argv[1]);
@@ -357,7 +364,14 @@ int main(int argc, char**argv)
     }
 
     print_elf_header(elf_prog, size);
-    print_prog_header(
-            (Elf64_Phdr*) ((char*) elf_prog + ((Elf32_Ehdr*) elf_prog)->e_ehsize));
+    printf("%d,%ld\n",((Elf64_Ehdr*) elf_prog)->e_phentsize,sizeof(Elf64_Phdr));
+    assert((((Elf64_Ehdr*) elf_prog)->e_phentsize) == sizeof(Elf64_Phdr));
+    phdr =
+            (Elf64_Phdr*) ((char*) elf_prog + ((Elf64_Ehdr*) elf_prog)->e_ehsize);
+
+    for (i = 0; i < ((Elf64_Ehdr*) elf_prog)->e_phnum; ++i) {
+        print_prog_header(&phdr[i]);
+    }
+
     return 0;
 }
