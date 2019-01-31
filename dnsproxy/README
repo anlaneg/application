@@ -1,0 +1,9 @@
+#
+client--get_dns---->dnsmasq--------(dns server)
+  |                   |
+  |                   |
+  |             (search domain for tsocks)-----need proxy------>add-http-proxy
+  |                                               |
+  |                                               |
+  |-------(http request)------------------------------------->http-server
+               
