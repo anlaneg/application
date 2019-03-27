@@ -3,4 +3,4 @@
 
 all:
 	cd src && make
-	cp src/td src/tfn .
+	#cp src/td src/tfn .
